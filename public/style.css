@@ -313,6 +313,13 @@ nav {
   text-align: center;
 }
 
+.team-logo {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 .team-name {
   flex: 1;
   font-weight: 500;
@@ -434,6 +441,16 @@ nav {
   border-radius: 8px;
   background: rgba(251, 191, 36, 0.08);
   text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.champion-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
 .champion-placeholder {

@@ -1,3 +1,18 @@
+// NBA Team IDs for logo CDN
+const TEAM_IDS = {
+  OKC: 1610612760, SAS: 1610612759, DEN: 1610612743, LAL: 1610612747,
+  HOU: 1610612745, MIN: 1610612750, DET: 1610612765, BOS: 1610612738,
+  NYK: 1610612752, CLE: 1610612739, TOR: 1610612761, ATL: 1610612737,
+  PHX: 1610612756, POR: 1610612757, LAC: 1610612746, GSW: 1610612744,
+  PHI: 1610612755, ORL: 1610612753, CHA: 1610612766, MIA: 1610612748,
+};
+
+function getLogoUrl(abbr) {
+  const id = TEAM_IDS[abbr];
+  if (!id) return null;
+  return `https://cdn.nba.com/logos/nba/${id}/global/L/logo.svg`;
+}
+
 // 2026 NBA Playoff Teams
 const TEAMS = {
   west: {
@@ -272,11 +287,23 @@ function createTeamEl(team, matchupId, isSelected, resultStatus) {
   seedSpan.className = 'seed';
   seedSpan.textContent = team ? team.seed : '?';
 
+  div.appendChild(seedSpan);
+
+  if (team && team.abbr) {
+    const logoUrl = getLogoUrl(team.abbr);
+    if (logoUrl) {
+      const img = document.createElement('img');
+      img.className = 'team-logo';
+      img.src = logoUrl;
+      img.alt = team.name;
+      div.appendChild(img);
+    }
+  }
+
   const nameSpan = document.createElement('span');
   nameSpan.className = 'team-name';
   nameSpan.textContent = team ? getTeamLabel(team) : 'TBD';
 
-  div.appendChild(seedSpan);
   div.appendChild(nameSpan);
 
   if (team && !state.locked && !state.viewingEntry) {
@@ -503,7 +530,17 @@ function renderFinals() {
   if (champion) {
     const div = document.createElement('div');
     div.className = 'champion-name';
-    div.textContent = getTeamLabel(champion, true);
+    const logoUrl = getLogoUrl(champion.abbr);
+    if (logoUrl) {
+      const img = document.createElement('img');
+      img.className = 'champion-logo';
+      img.src = logoUrl;
+      img.alt = champion.name;
+      div.appendChild(img);
+    }
+    const span = document.createElement('span');
+    span.textContent = getTeamLabel(champion, true);
+    div.appendChild(span);
     champContainer.appendChild(div);
   } else {
     const div = document.createElement('div');
