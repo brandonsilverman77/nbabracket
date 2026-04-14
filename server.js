@@ -1,8 +1,8 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,15 +12,33 @@ const PASSWORD = process.env.BRACKET_PASSWORD || 'playoffs2026';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin2026';
 const LOCK_DATE = process.env.LOCK_DATE || '2026-04-18T12:00:00-04:00'; // Noon ET on first game day
 
-// Data file paths
-const DATA_DIR = path.join(__dirname, 'data');
-const ENTRIES_FILE = path.join(DATA_DIR, 'entries.json');
-const RESULTS_FILE = path.join(DATA_DIR, 'results.json');
+// PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://nba_bracket_db_user:rE6Sf3aRg5SbxTRZeaYMo0atWqpK9YzM@dpg-d7fa2clckfvc73fbrd0g-a/nba_bracket_db',
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+});
 
-// Ensure data directory and files exist
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
-if (!fs.existsSync(ENTRIES_FILE)) fs.writeFileSync(ENTRIES_FILE, '{}');
-if (!fs.existsSync(RESULTS_FILE)) fs.writeFileSync(RESULTS_FILE, '{}');
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS entries (
+      name TEXT PRIMARY KEY,
+      picks JSONB NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS results (
+      id TEXT PRIMARY KEY DEFAULT 'current',
+      data JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+  `);
+  // Ensure results row exists
+  await pool.query(`
+    INSERT INTO results (id, data) VALUES ('current', '{}'::jsonb)
+    ON CONFLICT (id) DO NOTHING
+  `);
+  console.log('Database initialized');
+}
 
 // Middleware
 app.use(express.json());
@@ -61,14 +79,6 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-function readJSON(filepath) {
-  return JSON.parse(fs.readFileSync(filepath, 'utf8'));
-}
-
-function writeJSON(filepath, data) {
-  fs.writeFileSync(filepath, JSON.stringify(data, null, 2));
-}
-
 function isLocked() {
   return new Date() >= new Date(LOCK_DATE);
 }
@@ -107,12 +117,21 @@ app.get('/api/config', requireAuth, (req, res) => {
 });
 
 // Entries CRUD
-app.get('/api/entries', requireAuth, (req, res) => {
-  const entries = readJSON(ENTRIES_FILE);
-  res.json(entries);
+app.get('/api/entries', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT name, picks, updated_at FROM entries ORDER BY name');
+    const entries = {};
+    for (const row of rows) {
+      entries[row.name] = { picks: row.picks, updatedAt: row.updated_at };
+    }
+    res.json(entries);
+  } catch (err) {
+    console.error('Error reading entries:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
-app.post('/api/entries', requireAuth, (req, res) => {
+app.post('/api/entries', requireAuth, async (req, res) => {
   if (isLocked()) {
     return res.status(403).json({ error: 'Bracket is locked — picks can no longer be changed' });
   }
@@ -121,29 +140,52 @@ app.post('/api/entries', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Name and picks required' });
   }
   const sanitizedName = name.trim().substring(0, 30);
-  const entries = readJSON(ENTRIES_FILE);
-  entries[sanitizedName] = { picks, updatedAt: new Date().toISOString() };
-  writeJSON(ENTRIES_FILE, entries);
-  res.json({ success: true });
+  try {
+    await pool.query(
+      `INSERT INTO entries (name, picks, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (name) DO UPDATE SET picks = $2, updated_at = NOW()`,
+      [sanitizedName, JSON.stringify(picks)]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error saving entry:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
-app.delete('/api/entries/:name', requireAdmin, (req, res) => {
-  const entries = readJSON(ENTRIES_FILE);
-  delete entries[req.params.name];
-  writeJSON(ENTRIES_FILE, entries);
-  res.json({ success: true });
+app.delete('/api/entries/:name', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM entries WHERE name = $1', [req.params.name]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting entry:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // Results (admin only for writing)
-app.get('/api/results', requireAuth, (req, res) => {
-  const results = readJSON(RESULTS_FILE);
-  res.json(results);
+app.get('/api/results', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT data FROM results WHERE id = 'current'");
+    res.json(rows[0]?.data || {});
+  } catch (err) {
+    console.error('Error reading results:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
-app.post('/api/results', requireAdmin, (req, res) => {
+app.post('/api/results', requireAdmin, async (req, res) => {
   const { results } = req.body;
-  writeJSON(RESULTS_FILE, results);
-  res.json({ success: true });
+  try {
+    await pool.query(
+      "UPDATE results SET data = $1 WHERE id = 'current'",
+      [JSON.stringify(results)]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error saving results:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // Random bracket generator
@@ -167,9 +209,9 @@ function generateRandomBracket() {
   // Pick play-in teams (ensure 7 and 8 are different)
   const playinSelections = {};
   for (const conf of ['west', 'east']) {
-    const pool = [...playinTeams[conf][7]];
-    const seed7 = pool[Math.floor(Math.random() * pool.length)];
-    const remaining = pool.filter(t => t !== seed7);
+    const ppool = [...playinTeams[conf][7]];
+    const seed7 = ppool[Math.floor(Math.random() * ppool.length)];
+    const remaining = ppool.filter(t => t !== seed7);
     const seed8 = remaining[Math.floor(Math.random() * remaining.length)];
     playinSelections[`${conf}_7`] = seed7;
     playinSelections[`${conf}_8`] = seed8;
@@ -226,12 +268,19 @@ function generateRandomBracket() {
   return picks;
 }
 
-app.post('/api/generate-random', requireAdmin, (req, res) => {
+app.post('/api/generate-random', requireAdmin, async (req, res) => {
   const picks = generateRandomBracket();
-  const entries = readJSON(ENTRIES_FILE);
-  entries['Random Bot'] = { picks, updatedAt: new Date().toISOString() };
-  writeJSON(ENTRIES_FILE, entries);
-  res.json({ success: true, picks });
+  try {
+    await pool.query(
+      `INSERT INTO entries (name, picks, updated_at) VALUES ('Random Bot', $1, NOW())
+       ON CONFLICT (name) DO UPDATE SET picks = $1, updated_at = NOW()`,
+      [JSON.stringify(picks)]
+    );
+    res.json({ success: true, picks });
+  } catch (err) {
+    console.error('Error saving random bracket:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // Scoring
@@ -243,43 +292,55 @@ const ROUND_POINTS = {
   'champion': 32
 };
 
-app.get('/api/leaderboard', requireAuth, (req, res) => {
-  const entries = readJSON(ENTRIES_FILE);
-  const results = readJSON(RESULTS_FILE);
+app.get('/api/leaderboard', requireAuth, async (req, res) => {
+  try {
+    const { rows: entryRows } = await pool.query('SELECT name, picks, updated_at FROM entries ORDER BY name');
+    const { rows: resultRows } = await pool.query("SELECT data FROM results WHERE id = 'current'");
+    const results = resultRows[0]?.data || {};
 
-  const leaderboard = Object.entries(entries).map(([name, entry]) => {
-    let score = 0;
-    let correct = 0;
-    let total = 0;
+    const leaderboard = entryRows.map(row => {
+      let score = 0;
+      let correct = 0;
+      let total = 0;
 
-    for (const [matchupId, result] of Object.entries(results)) {
-      if (!result.winner) continue;
-      const pick = entry.picks[matchupId];
-      if (!pick) continue;
+      for (const [matchupId, result] of Object.entries(results)) {
+        if (!result.winner) continue;
+        const pick = row.picks[matchupId];
+        if (!pick) continue;
 
-      const round = matchupId.split('_')[0];
-      const points = ROUND_POINTS[round] || 0;
-      total++;
+        const round = matchupId.split('_')[0];
+        const points = ROUND_POINTS[round] || 0;
+        total++;
 
-      if (pick.winner === result.winner) {
-        score += points;
-        correct++;
-        if (pick.games && result.games && pick.games === result.games) {
-          score += 2;
+        if (pick.winner === result.winner) {
+          score += points;
+          correct++;
+          if (pick.games && result.games && pick.games === result.games) {
+            score += 2;
+          }
         }
       }
-    }
 
-    return { name, score, correct, total, updatedAt: entry.updatedAt };
-  });
+      return { name: row.name, score, correct, total, updatedAt: row.updated_at };
+    });
 
-  leaderboard.sort((a, b) => b.score - a.score);
-  res.json(leaderboard);
+    leaderboard.sort((a, b) => b.score - a.score);
+    res.json(leaderboard);
+  } catch (err) {
+    console.error('Error computing leaderboard:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
-app.listen(PORT, () => {
-  console.log(`NBA Bracket app running at http://localhost:${PORT}`);
-  console.log(`Password: ${PASSWORD}`);
-  console.log(`Admin password: ${ADMIN_PASSWORD}`);
-  console.log(`Entries lock at: ${LOCK_DATE}`);
+// Start server after DB init
+initDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`NBA Bracket app running at http://localhost:${PORT}`);
+    console.log(`Password: ${PASSWORD}`);
+    console.log(`Admin password: ${ADMIN_PASSWORD}`);
+    console.log(`Entries lock at: ${LOCK_DATE}`);
+  });
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
 });
