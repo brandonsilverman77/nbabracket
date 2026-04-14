@@ -567,6 +567,74 @@ nav {
   min-width: 200px;
 }
 
+/* George Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 2.5rem;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-emoji {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.modal-box h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  line-height: 1.4;
+}
+
+.modal-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.modal-btn {
+  padding: 0.7rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.modal-btn.confirm-btn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.modal-btn.confirm-btn:hover {
+  background: var(--accent-hover);
+}
+
+.modal-btn.cancel-btn {
+  background: var(--surface2);
+  color: var(--text-muted);
+}
+
+.modal-btn.cancel-btn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
 /* Tab content */
 .tab-content { display: none; }
 .tab-content.active { display: block; }

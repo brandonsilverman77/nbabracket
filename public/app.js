@@ -553,11 +553,50 @@ function renderFinals() {
 function selectWinner(matchupId, teamAbbr) {
   if (state.locked || state.viewingEntry) return;
 
+  if (teamAbbr === 'MIN') {
+    showGeorgeModal(() => {
+      applyWinner(matchupId, teamAbbr);
+    });
+    return;
+  }
+
+  applyWinner(matchupId, teamAbbr);
+}
+
+function applyWinner(matchupId, teamAbbr) {
   state.picks[matchupId] = { winner: teamAbbr, games: state.picks[matchupId]?.games || null };
 
   // Clear downstream picks if they depended on a different winner
   clearDownstream(matchupId);
   renderBracket();
+}
+
+function showGeorgeModal(onConfirm) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-box';
+  modal.innerHTML = `
+    <div class="modal-emoji">&#128556;</div>
+    <h2>George...are you sure you want to do this?</h2>
+    <div class="modal-buttons">
+      <button class="modal-btn confirm-btn">Yes, I'm sure</button>
+      <button class="modal-btn cancel-btn">You're right, this is probably a bad idea</button>
+    </div>
+  `;
+
+  modal.querySelector('.confirm-btn').addEventListener('click', () => {
+    overlay.remove();
+    onConfirm();
+  });
+
+  modal.querySelector('.cancel-btn').addEventListener('click', () => {
+    overlay.remove();
+  });
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
 }
 
 function clearDownstream(changedMatchupId) {
