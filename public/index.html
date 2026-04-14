@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NBA Playoff Bracket 2026</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-screen" class="screen">
+    <div class="login-box">
+      <div class="login-logo">&#127936;</div>
+      <h1>NBA Playoff Bracket</h1>
+      <p class="subtitle">2026 Predictions</p>
+      <form id="login-form">
+        <input type="password" id="password-input" placeholder="Enter password" autocomplete="off" required>
+        <button type="submit">Enter</button>
+        <p id="login-error" class="error hidden"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app-screen" class="screen hidden">
+    <header>
+      <div class="header-left">
+        <h1>NBA Playoff Bracket <span class="year">2026</span></h1>
+      </div>
+      <nav>
+        <button class="nav-btn active" data-tab="bracket">Bracket</button>
+        <button class="nav-btn" data-tab="leaderboard">Leaderboard</button>
+        <button class="nav-btn admin-only hidden" data-tab="admin">Admin</button>
+        <button class="nav-btn logout-btn" id="logout-btn">Logout</button>
+      </nav>
+    </header>
+
+    <!-- Bracket Tab -->
+    <div id="bracket-tab" class="tab-content active">
+      <div class="bracket-controls">
+        <div class="entry-selector">
+          <label for="entry-name">Your Name:</label>
+          <input type="text" id="entry-name" placeholder="Enter your name" maxlength="30">
+          <button id="load-entry-btn">Load</button>
+          <button id="save-entry-btn" class="primary-btn">Save Picks</button>
+        </div>
+        <div class="existing-entries">
+          <label>View picks:</label>
+          <select id="view-entry-select">
+            <option value="">-- Select --</option>
+          </select>
+        </div>
+        <div id="lock-banner" class="lock-banner hidden">
+          Picks are locked — the playoffs have started!
+        </div>
+      </div>
+
+      <div class="bracket-container">
+        <!-- Western Conference -->
+        <div class="conference west">
+          <h2>Western Conference</h2>
+          <div class="rounds">
+            <div class="round round1" data-round="round1">
+              <h3>First Round</h3>
+              <div id="west-round1" class="matchups"></div>
+            </div>
+            <div class="round round2" data-round="round2">
+              <h3>Conf. Semis</h3>
+              <div id="west-round2" class="matchups"></div>
+            </div>
+            <div class="round conf-finals" data-round="conf_finals">
+              <h3>Conf. Finals</h3>
+              <div id="west-conf-finals" class="matchups"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Finals -->
+        <div class="finals-section">
+          <div class="round finals" data-round="finals">
+            <h3>NBA Finals</h3>
+            <div id="finals" class="matchups"></div>
+          </div>
+          <div class="champion-section">
+            <h3>Champion</h3>
+            <div id="champion" class="champion-display"></div>
+          </div>
+        </div>
+
+        <!-- Eastern Conference -->
+        <div class="conference east">
+          <h2>Eastern Conference</h2>
+          <div class="rounds">
+            <div class="round conf-finals" data-round="conf_finals">
+              <h3>Conf. Finals</h3>
+              <div id="east-conf-finals" class="matchups"></div>
+            </div>
+            <div class="round round2" data-round="round2">
+              <h3>Conf. Semis</h3>
+              <div id="east-round2" class="matchups"></div>
+            </div>
+            <div class="round round1" data-round="round1">
+              <h3>First Round</h3>
+              <div id="east-round1" class="matchups"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Leaderboard Tab -->
+    <div id="leaderboard-tab" class="tab-content">
+      <div class="leaderboard-container">
+        <h2>Leaderboard</h2>
+        <div class="scoring-info">
+          <p><strong>Scoring:</strong> Round 1: 2pts | Semis: 4pts | Conf Finals: 8pts | Finals: 16pts | Champion: 32pts | Correct games: +2pts</p>
+        </div>
+        <table id="leaderboard-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Name</th>
+              <th>Score</th>
+              <th>Correct Picks</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboard-body"></tbody>
+        </table>
+        <p id="no-results-msg" class="muted hidden">No results entered yet. Scores will appear once the admin enters playoff results.</p>
+      </div>
+    </div>
+
+    <!-- Admin Tab -->
+    <div id="admin-tab" class="tab-content">
+      <div class="admin-container">
+        <h2>Enter Results</h2>
+        <p class="muted">Select each series winner and number of games as the playoffs progress.</p>
+        <div id="admin-results" class="admin-results"></div>
+        <button id="save-results-btn" class="primary-btn">Save Results</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
