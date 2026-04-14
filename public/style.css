@@ -518,6 +518,24 @@ nav {
   margin-bottom: 0.5rem;
 }
 
+.admin-section-divider {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin: 1.5rem 0;
+}
+
+.admin-section-divider h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+  color: var(--accent);
+}
+
+.admin-section-divider .primary-btn {
+  margin-top: 0.75rem;
+}
+
 .admin-results {
   margin: 1.5rem 0;
 }

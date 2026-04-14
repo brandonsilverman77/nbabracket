@@ -146,6 +146,94 @@ app.post('/api/results', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
+// Random bracket generator
+function generateRandomBracket() {
+  const teams = {
+    west: {
+      1: 'OKC', 2: 'SAS', 3: 'DEN', 4: 'LAL', 5: 'HOU', 6: 'MIN',
+    },
+    east: {
+      1: 'DET', 2: 'BOS', 3: 'NYK', 4: 'CLE', 5: 'TOR', 6: 'ATL',
+    }
+  };
+  const playinTeams = {
+    west: { 7: ['PHX', 'POR', 'LAC', 'GSW'], 8: ['PHX', 'POR', 'LAC', 'GSW'] },
+    east: { 7: ['PHI', 'ORL', 'CHA', 'MIA'], 8: ['PHI', 'ORL', 'CHA', 'MIA'] },
+  };
+
+  const pick = (a, b) => Math.random() < 0.5 ? a : b;
+  const randGames = () => 4 + Math.floor(Math.random() * 4); // 4-7
+
+  // Pick play-in teams (ensure 7 and 8 are different)
+  const playinSelections = {};
+  for (const conf of ['west', 'east']) {
+    const pool = [...playinTeams[conf][7]];
+    const seed7 = pool[Math.floor(Math.random() * pool.length)];
+    const remaining = pool.filter(t => t !== seed7);
+    const seed8 = remaining[Math.floor(Math.random() * remaining.length)];
+    playinSelections[`${conf}_7`] = seed7;
+    playinSelections[`${conf}_8`] = seed8;
+    teams[conf][7] = seed7;
+    teams[conf][8] = seed8;
+  }
+
+  const picks = { _playinSelections: playinSelections };
+
+  // Round 1
+  const r1Winners = {};
+  const r1Matchups = {
+    west: [['round1_w1', 1, 8], ['round1_w2', 4, 5], ['round1_w3', 3, 6], ['round1_w4', 2, 7]],
+    east: [['round1_e1', 1, 8], ['round1_e2', 4, 5], ['round1_e3', 3, 6], ['round1_e4', 2, 7]],
+  };
+  for (const conf of ['west', 'east']) {
+    for (const [id, s1, s2] of r1Matchups[conf]) {
+      const winner = pick(teams[conf][s1], teams[conf][s2]);
+      picks[id] = { winner, games: randGames() };
+      r1Winners[id] = winner;
+    }
+  }
+
+  // Round 2
+  const r2Winners = {};
+  const r2Matchups = [
+    ['round2_w1', 'round1_w1', 'round1_w2'],
+    ['round2_w2', 'round1_w3', 'round1_w4'],
+    ['round2_e1', 'round1_e1', 'round1_e2'],
+    ['round2_e2', 'round1_e3', 'round1_e4'],
+  ];
+  for (const [id, from1, from2] of r2Matchups) {
+    const winner = pick(r1Winners[from1], r1Winners[from2]);
+    picks[id] = { winner, games: randGames() };
+    r2Winners[id] = winner;
+  }
+
+  // Conf finals
+  const cfWinners = {};
+  const cfMatchups = [
+    ['conf_finals_w', 'round2_w1', 'round2_w2'],
+    ['conf_finals_e', 'round2_e1', 'round2_e2'],
+  ];
+  for (const [id, from1, from2] of cfMatchups) {
+    const winner = pick(r2Winners[from1], r2Winners[from2]);
+    picks[id] = { winner, games: randGames() };
+    cfWinners[id] = winner;
+  }
+
+  // Finals
+  const finalsWinner = pick(cfWinners['conf_finals_w'], cfWinners['conf_finals_e']);
+  picks['finals_1'] = { winner: finalsWinner, games: randGames() };
+
+  return picks;
+}
+
+app.post('/api/generate-random', requireAdmin, (req, res) => {
+  const picks = generateRandomBracket();
+  const entries = readJSON(ENTRIES_FILE);
+  entries['Random Bot'] = { picks, updatedAt: new Date().toISOString() };
+  writeJSON(ENTRIES_FILE, entries);
+  res.json({ success: true, picks });
+});
+
 // Scoring
 const ROUND_POINTS = {
   'round1': 2,

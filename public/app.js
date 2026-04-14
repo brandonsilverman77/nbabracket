@@ -670,6 +670,22 @@ async function renderLeaderboard() {
 
 // Admin
 function renderAdmin() {
+  // Wire up random bot button
+  const randomBtn = document.getElementById('generate-random-btn');
+  if (randomBtn && !randomBtn.dataset.wired) {
+    randomBtn.dataset.wired = 'true';
+    randomBtn.addEventListener('click', async () => {
+      try {
+        await api('/api/generate-random', { method: 'POST' });
+        document.getElementById('random-status').textContent = ' Random Bot bracket saved!';
+        await loadEntries();
+        renderBracket();
+      } catch (err) {
+        document.getElementById('random-status').textContent = ' Error: ' + err.message;
+      }
+    });
+  }
+
   const container = document.getElementById('admin-results');
   container.innerHTML = '';
 
