@@ -11,7 +11,6 @@ const PORT = process.env.PORT || 3000;
 const PASSWORD = process.env.BRACKET_PASSWORD || 'playoffs2026';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin2026';
 const LOCK_DATE = process.env.LOCK_DATE || '2026-04-18T12:00:00-04:00'; // Noon ET on first game day
-const SESSION_SECRET = crypto.randomBytes(32).toString('hex');
 
 // Data file paths
 const DATA_DIR = path.join(__dirname, 'data');
@@ -28,30 +27,37 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Simple session tokens
-const sessions = new Map();
+// Stateless signed tokens (survive server restarts)
+const SIGN_KEY = crypto.createHash('sha256').update(PASSWORD + ':' + ADMIN_PASSWORD).digest();
 
-function createSession(isAdmin = false) {
-  const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, { isAdmin, created: Date.now() });
-  return token;
+function createToken(isAdmin = false) {
+  const payload = JSON.stringify({ isAdmin, t: Date.now() });
+  const sig = crypto.createHmac('sha256', SIGN_KEY).update(payload).digest('hex');
+  return Buffer.from(payload).toString('base64') + '.' + sig;
+}
+
+function verifyToken(token) {
+  if (!token || !token.includes('.')) return null;
+  const [b64, sig] = token.split('.');
+  try {
+    const payload = Buffer.from(b64, 'base64').toString();
+    const expected = crypto.createHmac('sha256', SIGN_KEY).update(payload).digest('hex');
+    if (sig !== expected) return null;
+    return JSON.parse(payload);
+  } catch { return null; }
 }
 
 function requireAuth(req, res, next) {
-  const token = req.cookies.session;
-  if (!token || !sessions.has(token)) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  req.session = sessions.get(token);
+  const session = verifyToken(req.cookies.session);
+  if (!session) return res.status(401).json({ error: 'Not authenticated' });
+  req.session = session;
   next();
 }
 
 function requireAdmin(req, res, next) {
-  const token = req.cookies.session;
-  if (!token || !sessions.has(token) || !sessions.get(token).isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  req.session = sessions.get(token);
+  const session = verifyToken(req.cookies.session);
+  if (!session || !session.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+  req.session = session;
   next();
 }
 
@@ -72,7 +78,7 @@ app.post('/api/login', (req, res) => {
   const { password } = req.body;
   if (password === PASSWORD || password === ADMIN_PASSWORD) {
     const isAdmin = password === ADMIN_PASSWORD;
-    const token = createSession(isAdmin);
+    const token = createToken(isAdmin);
     res.cookie('session', token, { httpOnly: true, sameSite: 'strict', maxAge: 30 * 24 * 60 * 60 * 1000 });
     res.json({ success: true, isAdmin });
   } else {
@@ -81,17 +87,12 @@ app.post('/api/login', (req, res) => {
 });
 
 app.get('/api/me', (req, res) => {
-  const token = req.cookies.session;
-  if (!token || !sessions.has(token)) {
-    return res.json({ authenticated: false });
-  }
-  const session = sessions.get(token);
+  const session = verifyToken(req.cookies.session);
+  if (!session) return res.json({ authenticated: false });
   res.json({ authenticated: true, isAdmin: session.isAdmin });
 });
 
 app.post('/api/logout', (req, res) => {
-  const token = req.cookies.session;
-  if (token) sessions.delete(token);
   res.clearCookie('session');
   res.json({ success: true });
 });
