@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: nba-bracket
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: BRACKET_PASSWORD
+        value: playoffs2026
+      - key: ADMIN_PASSWORD
+        value: admin2026
+      - key: NODE_ENV
+        value: production
