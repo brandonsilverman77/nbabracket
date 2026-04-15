@@ -470,6 +470,46 @@ nav {
   margin-bottom: 1rem;
 }
 
+.leaderboard-subtabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.25rem;
+  width: fit-content;
+}
+
+.subtab-btn {
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.subtab-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.subtab-btn:hover:not(.active) {
+  color: var(--text);
+}
+
+.subtab-content {
+  display: none;
+}
+
+.subtab-content.active {
+  display: block;
+}
+
 .scoring-info {
   background: var(--surface);
   border: 1px solid var(--border);

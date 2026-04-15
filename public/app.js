@@ -133,6 +133,16 @@ function setupEventListeners() {
   document.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
+
+  document.querySelectorAll('.subtab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.subtab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(`${btn.dataset.subtab}-subtab`).classList.add('active');
+      if (btn.dataset.subtab === 'all-time') renderAllTimeLeaderboard();
+    });
+  });
 }
 
 async function handleLogin(e) {
@@ -665,6 +675,29 @@ async function renderLeaderboard() {
     });
   } catch (e) {
     console.error('Failed to load leaderboard:', e);
+  }
+}
+
+async function renderAllTimeLeaderboard() {
+  try {
+    const leaderboard = await api('/api/leaderboard/all-time');
+    const tbody = document.getElementById('alltime-body');
+    tbody.innerHTML = '';
+
+    leaderboard.forEach((entry, i) => {
+      const rank = i + 1;
+      const tr = document.createElement('tr');
+      const rankClass = rank <= 3 ? `rank-${rank}` : '';
+      tr.innerHTML = `
+        <td class="${rankClass}">${rank === 1 ? '\u{1F947}' : rank === 2 ? '\u{1F948}' : rank === 3 ? '\u{1F949}' : rank}</td>
+        <td class="${rankClass}">${escapeHtml(entry.name)}</td>
+        <td class="${rankClass}">${entry.score}</td>
+        <td>${entry.correct}/${entry.total}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    console.error('Failed to load all-time leaderboard:', e);
   }
 }
 

@@ -37,6 +37,34 @@ async function initDB() {
     INSERT INTO results (id, data) VALUES ('current', '{}'::jsonb)
     ON CONFLICT (id) DO NOTHING
   `);
+
+  // Historical scores table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS historical_scores (
+      name TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      score INTEGER NOT NULL DEFAULT 0,
+      correct INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (name, year)
+    )
+  `);
+
+  // Seed 2025 scores (computed from original picks vs actual results)
+  const seeds2025 = [
+    ['Brandon', 2025, 16, 7, 15],
+    ['George', 2025, 28, 9, 15],
+    ['Matt', 2025, 26, 9, 15],
+    ['Will', 2025, 24, 7, 15],
+  ];
+  for (const [name, year, score, correct, total] of seeds2025) {
+    await pool.query(
+      `INSERT INTO historical_scores (name, year, score, correct, total) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (name, year) DO NOTHING`,
+      [name, year, score, correct, total]
+    );
+  }
+
   console.log('Database initialized');
 }
 
@@ -283,20 +311,25 @@ app.post('/api/generate-random', requireAdmin, async (req, res) => {
   }
 });
 
-// Scoring
-const ROUND_POINTS = {
-  'round1': 2,
-  'round2': 4,
-  'conf_finals': 8,
-  'finals': 16,
-  'champion': 32
-};
-
+// Scoring: 2pts correct winner, +2pts correct games, +2pts unique pick
 app.get('/api/leaderboard', requireAuth, async (req, res) => {
   try {
     const { rows: entryRows } = await pool.query('SELECT name, picks, updated_at FROM entries ORDER BY name');
     const { rows: resultRows } = await pool.query("SELECT data FROM results WHERE id = 'current'");
     const results = resultRows[0]?.data || {};
+
+    // First pass: count how many people picked each winner per matchup
+    const winnerCounts = {};
+    for (const [matchupId, result] of Object.entries(results)) {
+      if (!result.winner) continue;
+      winnerCounts[matchupId] = 0;
+      for (const row of entryRows) {
+        const pick = row.picks[matchupId];
+        if (pick && pick.winner === result.winner) {
+          winnerCounts[matchupId]++;
+        }
+      }
+    }
 
     const leaderboard = entryRows.map(row => {
       let score = 0;
@@ -307,16 +340,16 @@ app.get('/api/leaderboard', requireAuth, async (req, res) => {
         if (!result.winner) continue;
         const pick = row.picks[matchupId];
         if (!pick) continue;
-
-        const round = matchupId.split('_')[0];
-        const points = ROUND_POINTS[round] || 0;
         total++;
 
         if (pick.winner === result.winner) {
-          score += points;
+          score += 2; // correct winner
           correct++;
           if (pick.games && result.games && pick.games === result.games) {
-            score += 2;
+            score += 2; // correct games
+          }
+          if (winnerCounts[matchupId] === 1) {
+            score += 2; // only person to pick this winner
           }
         }
       }
@@ -328,6 +361,73 @@ app.get('/api/leaderboard', requireAuth, async (req, res) => {
     res.json(leaderboard);
   } catch (err) {
     console.error('Error computing leaderboard:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// All-time leaderboard
+app.get('/api/leaderboard/all-time', requireAuth, async (req, res) => {
+  try {
+    // Get historical scores
+    const { rows: historicalRows } = await pool.query(
+      'SELECT name, SUM(score) as score, SUM(correct) as correct, SUM(total) as total FROM historical_scores GROUP BY name'
+    );
+
+    // Get current year scores (same logic as /api/leaderboard)
+    const { rows: entryRows } = await pool.query('SELECT name, picks FROM entries ORDER BY name');
+    const { rows: resultRows } = await pool.query("SELECT data FROM results WHERE id = 'current'");
+    const results = resultRows[0]?.data || {};
+
+    const winnerCounts = {};
+    for (const [matchupId, result] of Object.entries(results)) {
+      if (!result.winner) continue;
+      winnerCounts[matchupId] = 0;
+      for (const row of entryRows) {
+        const pick = row.picks[matchupId];
+        if (pick && pick.winner === result.winner) winnerCounts[matchupId]++;
+      }
+    }
+
+    const currentScores = {};
+    for (const row of entryRows) {
+      let score = 0, correct = 0, total = 0;
+      for (const [matchupId, result] of Object.entries(results)) {
+        if (!result.winner) continue;
+        const pick = row.picks[matchupId];
+        if (!pick) continue;
+        total++;
+        if (pick.winner === result.winner) {
+          score += 2;
+          correct++;
+          if (pick.games && result.games && pick.games === result.games) score += 2;
+          if (winnerCounts[matchupId] === 1) score += 2;
+        }
+      }
+      currentScores[row.name] = { score, correct, total };
+    }
+
+    // Merge historical + current
+    const allNames = new Set([
+      ...historicalRows.map(r => r.name),
+      ...Object.keys(currentScores)
+    ]);
+
+    const leaderboard = Array.from(allNames).map(name => {
+      const hist = historicalRows.find(r => r.name === name);
+      const curr = currentScores[name];
+      return {
+        name,
+        score: (parseInt(hist?.score) || 0) + (curr?.score || 0),
+        correct: (parseInt(hist?.correct) || 0) + (curr?.correct || 0),
+        total: (parseInt(hist?.total) || 0) + (curr?.total || 0),
+        years: hist ? 2 : 1,
+      };
+    });
+
+    leaderboard.sort((a, b) => b.score - a.score);
+    res.json(leaderboard);
+  } catch (err) {
+    console.error('Error computing all-time leaderboard:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });

@@ -112,21 +112,42 @@
     <div id="leaderboard-tab" class="tab-content">
       <div class="leaderboard-container">
         <h2>Leaderboard</h2>
-        <div class="scoring-info">
-          <p><strong>Scoring:</strong> Round 1: 2pts | Semis: 4pts | Conf Finals: 8pts | Finals: 16pts | Champion: 32pts | Correct games: +2pts</p>
+        <div class="leaderboard-subtabs">
+          <button class="subtab-btn active" data-subtab="this-year">This Year</button>
+          <button class="subtab-btn" data-subtab="all-time">All-Time</button>
         </div>
-        <table id="leaderboard-table">
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Name</th>
-              <th>Score</th>
-              <th>Correct Picks</th>
-            </tr>
-          </thead>
-          <tbody id="leaderboard-body"></tbody>
-        </table>
-        <p id="no-results-msg" class="muted hidden">No results entered yet. Scores will appear once the admin enters playoff results.</p>
+        <div class="scoring-info">
+          <p><strong>Scoring:</strong> Correct winner: 2pts | Correct # of games: +2pts | Only person to pick winner: +2pts</p>
+        </div>
+
+        <div id="this-year-subtab" class="subtab-content active">
+          <table id="leaderboard-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Name</th>
+                <th>Score</th>
+                <th>Correct Picks</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-body"></tbody>
+          </table>
+          <p id="no-results-msg" class="muted hidden">No results entered yet. Scores will appear once the admin enters playoff results.</p>
+        </div>
+
+        <div id="all-time-subtab" class="subtab-content">
+          <table id="alltime-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Name</th>
+                <th>Total Score</th>
+                <th>Correct Picks</th>
+              </tr>
+            </thead>
+            <tbody id="alltime-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
