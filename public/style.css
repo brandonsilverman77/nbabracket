@@ -520,26 +520,26 @@ nav {
   color: var(--text-muted);
 }
 
-#leaderboard-table {
+.leaderboard-styled {
   width: 100%;
   border-collapse: collapse;
 }
 
-#leaderboard-table th,
-#leaderboard-table td {
+.leaderboard-styled th,
+.leaderboard-styled td {
   padding: 0.75rem 1rem;
   text-align: left;
   border-bottom: 1px solid var(--border);
 }
 
-#leaderboard-table th {
+.leaderboard-styled th {
   color: var(--text-muted);
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
-#leaderboard-table tbody tr:hover {
+.leaderboard-styled tbody tr:hover {
   background: var(--surface);
 }
 
