@@ -365,6 +365,16 @@ app.get('/api/leaderboard', requireAuth, async (req, res) => {
   }
 });
 
+// Name aliases for all-time merging (maps variant → canonical name)
+const NAME_ALIASES = {
+  'matt': 'Matt',
+  'Will - big Sixers fan': 'Will',
+};
+
+function canonicalName(name) {
+  return NAME_ALIASES[name] || name;
+}
+
 // All-time leaderboard
 app.get('/api/leaderboard/all-time', requireAuth, async (req, res) => {
   try {
@@ -406,23 +416,29 @@ app.get('/api/leaderboard/all-time', requireAuth, async (req, res) => {
       currentScores[row.name] = { score, correct, total };
     }
 
-    // Merge historical + current
-    const allNames = new Set([
-      ...historicalRows.map(r => r.name),
-      ...Object.keys(currentScores)
-    ]);
+    // Merge historical + current using canonical names
+    const merged = {};
+    for (const row of historicalRows) {
+      const cn = canonicalName(row.name);
+      if (!merged[cn]) merged[cn] = { score: 0, correct: 0, total: 0 };
+      merged[cn].score += parseInt(row.score) || 0;
+      merged[cn].correct += parseInt(row.correct) || 0;
+      merged[cn].total += parseInt(row.total) || 0;
+    }
+    for (const [name, data] of Object.entries(currentScores)) {
+      const cn = canonicalName(name);
+      if (!merged[cn]) merged[cn] = { score: 0, correct: 0, total: 0 };
+      merged[cn].score += data.score;
+      merged[cn].correct += data.correct;
+      merged[cn].total += data.total;
+    }
 
-    const leaderboard = Array.from(allNames).map(name => {
-      const hist = historicalRows.find(r => r.name === name);
-      const curr = currentScores[name];
-      return {
-        name,
-        score: (parseInt(hist?.score) || 0) + (curr?.score || 0),
-        correct: (parseInt(hist?.correct) || 0) + (curr?.correct || 0),
-        total: (parseInt(hist?.total) || 0) + (curr?.total || 0),
-        years: hist ? 2 : 1,
-      };
-    });
+    const leaderboard = Object.entries(merged).map(([name, data]) => ({
+      name,
+      score: data.score,
+      correct: data.correct,
+      total: data.total,
+    }));
 
     leaderboard.sort((a, b) => b.score - a.score);
     res.json(leaderboard);
