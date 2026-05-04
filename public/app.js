@@ -88,7 +88,10 @@ let state = {
   authenticated: false,
   isAdmin: false,
   locked: false,
+  v2Unlocked: false,
+  activeBracket: 'v1',  // 'v1' or 'v2'
   picks: {},
+  picksV2: {},
   entries: {},
   results: {},
   playinSelections: {
@@ -143,6 +146,21 @@ function setupEventListeners() {
       if (btn.dataset.subtab === 'all-time') renderAllTimeLeaderboard();
     });
   });
+
+  document.querySelectorAll('.version-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.version-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.activeBracket = btn.dataset.version;
+      const v2Banner = document.getElementById('v2-banner');
+      if (state.activeBracket === 'v2') {
+        v2Banner.classList.remove('hidden');
+      } else {
+        v2Banner.classList.add('hidden');
+      }
+      renderBracket();
+    });
+  });
 }
 
 async function handleLogin(e) {
@@ -180,14 +198,27 @@ async function enterApp() {
 
   const config = await api('/api/config');
   state.locked = config.locked;
+  state.v2Unlocked = !!config.v2Unlocked;
   if (state.locked) {
     document.getElementById('lock-banner').classList.remove('hidden');
   }
+  updateBracketVersionToggle();
 
   await loadEntries();
   renderBracket();
   renderLeaderboard();
   if (state.isAdmin) renderAdmin();
+}
+
+function updateBracketVersionToggle() {
+  const toggle = document.getElementById('bracket-version-toggle');
+  if (state.v2Unlocked) {
+    toggle.classList.remove('hidden');
+  } else {
+    toggle.classList.add('hidden');
+    // Force back to v1 if v2 was disabled
+    state.activeBracket = 'v1';
+  }
 }
 
 async function loadEntries() {
@@ -209,17 +240,29 @@ function populateEntryDropdown() {
   if (current && state.entries[current]) select.value = current;
 }
 
+// Returns the picks object for the currently active bracket (v1 or v2)
+function activePicks() {
+  return state.activeBracket === 'v2' ? state.picksV2 : state.picks;
+}
+
+function setActivePicks(newPicks) {
+  if (state.activeBracket === 'v2') state.picksV2 = newPicks;
+  else state.picks = newPicks;
+}
+
 function handleViewEntry() {
   const name = document.getElementById('view-entry-select').value;
   if (!name) {
     state.viewingEntry = null;
     state.picks = {};
+    state.picksV2 = {};
     state.playinSelections = { west_7: null, west_8: null, east_7: null, east_8: null };
   } else {
     state.viewingEntry = name;
     const entry = state.entries[name];
-    state.picks = JSON.parse(JSON.stringify(entry.picks));
-    state.playinSelections = entry.picks._playinSelections || { west_7: null, west_8: null, east_7: null, east_8: null };
+    state.picks = JSON.parse(JSON.stringify(entry.picks || {}));
+    state.picksV2 = JSON.parse(JSON.stringify(entry.picks_v2 || {}));
+    state.playinSelections = entry.picks?._playinSelections || { west_7: null, west_8: null, east_7: null, east_8: null };
   }
   renderBracket();
 }
@@ -228,7 +271,9 @@ function handleLoad() {
   const name = document.getElementById('entry-name').value.trim();
   if (!name) return;
   if (state.entries[name]) {
-    state.picks = JSON.parse(JSON.stringify(state.entries[name].picks));
+    const entry = state.entries[name];
+    state.picks = JSON.parse(JSON.stringify(entry.picks || {}));
+    state.picksV2 = JSON.parse(JSON.stringify(entry.picks_v2 || {}));
     state.playinSelections = state.picks._playinSelections || { west_7: null, west_8: null, east_7: null, east_8: null };
     state.viewingEntry = null;
     document.getElementById('view-entry-select').value = '';
@@ -239,8 +284,20 @@ function handleLoad() {
 async function handleSave() {
   const name = document.getElementById('entry-name').value.trim();
   if (!name) return alert('Enter your name first!');
-  if (state.locked) return alert('Picks are locked!');
 
+  if (state.activeBracket === 'v2') {
+    if (!state.v2Unlocked) return alert('Bracket 2 is not unlocked yet.');
+    try {
+      await api('/api/entries/v2', { method: 'POST', body: { name, picks: state.picksV2 } });
+      await loadEntries();
+      alert('Bracket 2 picks saved!');
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
+
+  if (state.locked) return alert('Picks are locked!');
   const picks = { ...state.picks, _playinSelections: state.playinSelections };
   try {
     await api('/api/entries', { method: 'POST', body: { name, picks } });
@@ -316,7 +373,9 @@ function createTeamEl(team, matchupId, isSelected, resultStatus) {
 
   div.appendChild(nameSpan);
 
-  if (team && !state.locked && !state.viewingEntry) {
+  // In V2 mode, Round 1 is read-only (results are locked in)
+  const isV2Round1 = state.activeBracket === 'v2' && matchupId.startsWith('round1_');
+  if (team && !state.locked && !state.viewingEntry && !isV2Round1) {
     div.addEventListener('click', () => {
       selectWinner(matchupId, getTeamId(team));
     });
@@ -326,7 +385,7 @@ function createTeamEl(team, matchupId, isSelected, resultStatus) {
 }
 
 function createGamesSelector(matchupId) {
-  const pick = state.picks[matchupId];
+  const pick = activePicks()[matchupId];
   if (!pick || !pick.winner) return null;
 
   const div = document.createElement('div');
@@ -347,7 +406,7 @@ function createGamesSelector(matchupId) {
 
   if (!state.locked && !state.viewingEntry) {
     select.addEventListener('change', () => {
-      state.picks[matchupId].games = select.value ? parseInt(select.value) : null;
+      activePicks()[matchupId].games = select.value ? parseInt(select.value) : null;
     });
   } else {
     select.disabled = true;
@@ -389,7 +448,7 @@ function createPlayinSelector(conf, seed) {
 function getResultStatus(matchupId, teamAbbr) {
   const result = state.results[matchupId];
   if (!result || !result.winner) return null;
-  const pick = state.picks[matchupId];
+  const pick = activePicks()[matchupId];
   if (!pick || !pick.winner) return null;
   if (pick.winner === teamAbbr) {
     return result.winner === teamAbbr ? 'correct' : 'incorrect';
@@ -405,7 +464,10 @@ function renderFirstRound(conf) {
     const [highSeed, lowSeed] = matchup.seeds;
     const team1 = getTeam(conf, highSeed);
     const team2 = getTeam(conf, lowSeed);
-    const pick = state.picks[matchup.id];
+    // In V2 Round 1, "winner" is the actual result, not the user's pick
+    const pick = (state.activeBracket === 'v2')
+      ? state.results[matchup.id]
+      : activePicks()[matchup.id];
 
     const matchupEl = document.createElement('div');
     matchupEl.className = 'matchup';
@@ -442,11 +504,18 @@ function renderFirstRound(conf) {
 }
 
 function getWinnerTeam(matchupId) {
-  const pick = state.picks[matchupId];
-  if (!pick || !pick.winner) return null;
+  // In V2 mode, Round 1 winners come from actual results (locked in)
+  let abbr;
+  if (state.activeBracket === 'v2' && matchupId.startsWith('round1_')) {
+    const result = state.results[matchupId];
+    if (!result || !result.winner) return null;
+    abbr = result.winner;
+  } else {
+    const pick = activePicks()[matchupId];
+    if (!pick || !pick.winner) return null;
+    abbr = pick.winner;
+  }
 
-  // Search all teams + playin teams for the abbreviation
-  const abbr = pick.winner;
   for (const conf of ['west', 'east']) {
     for (const [seed, team] of Object.entries(TEAMS[conf])) {
       if (team.abbr === abbr) return { ...team, seed: parseInt(seed) };
@@ -465,7 +534,7 @@ function renderLaterRounds(conf) {
   ROUND2[conf].forEach(matchup => {
     const team1 = getWinnerTeam(matchup.from[0]);
     const team2 = getWinnerTeam(matchup.from[1]);
-    const pick = state.picks[matchup.id];
+    const pick = activePicks()[matchup.id];
 
     const matchupEl = document.createElement('div');
     matchupEl.className = 'matchup';
@@ -490,7 +559,7 @@ function renderLaterRounds(conf) {
   const cf = CONF_FINALS[conf];
   const team1 = getWinnerTeam(cf.from[0]);
   const team2 = getWinnerTeam(cf.from[1]);
-  const pick = state.picks[cf.id];
+  const pick = activePicks()[cf.id];
 
   const matchupEl = document.createElement('div');
   matchupEl.className = 'matchup';
@@ -515,7 +584,7 @@ function renderFinals() {
 
   const team1 = getWinnerTeam(FINALS.from[0]);
   const team2 = getWinnerTeam(FINALS.from[1]);
-  const pick = state.picks[FINALS.id];
+  const pick = activePicks()[FINALS.id];
 
   const matchupEl = document.createElement('div');
   matchupEl.className = 'matchup';
@@ -562,6 +631,8 @@ function renderFinals() {
 
 function selectWinner(matchupId, teamAbbr) {
   if (state.locked || state.viewingEntry) return;
+  // V2 Round 1 is read-only (locked to actual results)
+  if (state.activeBracket === 'v2' && matchupId.startsWith('round1_')) return;
 
   if (teamAbbr === 'MIN') {
     showGeorgeModal(() => {
@@ -574,7 +645,7 @@ function selectWinner(matchupId, teamAbbr) {
 }
 
 function applyWinner(matchupId, teamAbbr) {
-  state.picks[matchupId] = { winner: teamAbbr, games: state.picks[matchupId]?.games || null };
+  activePicks()[matchupId] = { winner: teamAbbr, games: activePicks()[matchupId]?.games || null };
 
   // Clear downstream picks if they depended on a different winner
   clearDownstream(matchupId);
@@ -619,15 +690,15 @@ function clearDownstream(changedMatchupId) {
 
   for (const matchup of allLater) {
     if (matchup.from && matchup.from.includes(changedMatchupId)) {
-      const pick = state.picks[matchup.id];
+      const pick = activePicks()[matchup.id];
       if (pick) {
         // Check if the picked winner is still valid
         const validTeams = matchup.from.map(fromId => {
-          const p = state.picks[fromId];
+          const p = activePicks()[fromId];
           return p ? p.winner : null;
         });
         if (!validTeams.includes(pick.winner)) {
-          delete state.picks[matchup.id];
+          delete activePicks()[matchup.id];
           clearDownstream(matchup.id);
         }
       }
@@ -653,6 +724,8 @@ async function renderLeaderboard() {
           <td>${i + 1}</td>
           <td>${escapeHtml(entry.name)}</td>
           <td>0</td>
+          <td>0</td>
+          <td>0</td>
           <td>--</td>
         `;
         tbody.appendChild(tr);
@@ -668,7 +741,9 @@ async function renderLeaderboard() {
       tr.innerHTML = `
         <td class="${rankClass}">${rank === 1 ? '\u{1F947}' : rank === 2 ? '\u{1F948}' : rank === 3 ? '\u{1F949}' : rank}</td>
         <td class="${rankClass}">${escapeHtml(entry.name)}</td>
-        <td class="${rankClass}">${entry.score}</td>
+        <td class="${rankClass}">${entry.score_v1 ?? 0}</td>
+        <td class="${rankClass}">${entry.score_v2 ?? 0}</td>
+        <td class="${rankClass}"><strong>${entry.score}</strong></td>
         <td>${entry.correct}/${entry.total}</td>
       `;
       tbody.appendChild(tr);
@@ -717,6 +792,27 @@ function renderAdmin() {
         document.getElementById('random-status').textContent = ' Error: ' + err.message;
       }
     });
+  }
+
+  // Wire up V2 toggle button
+  const v2Btn = document.getElementById('toggle-v2-btn');
+  if (v2Btn) {
+    v2Btn.textContent = state.v2Unlocked ? 'Lock Bracket 2' : 'Unlock Bracket 2';
+    if (!v2Btn.dataset.wired) {
+      v2Btn.dataset.wired = 'true';
+      v2Btn.addEventListener('click', async () => {
+        try {
+          const result = await api('/api/admin/toggle-v2', { method: 'POST' });
+          state.v2Unlocked = result.v2Unlocked;
+          v2Btn.textContent = state.v2Unlocked ? 'Lock Bracket 2' : 'Unlock Bracket 2';
+          document.getElementById('v2-status').textContent =
+            state.v2Unlocked ? ' Bracket 2 is now unlocked!' : ' Bracket 2 is locked.';
+          updateBracketVersionToggle();
+        } catch (err) {
+          document.getElementById('v2-status').textContent = ' Error: ' + err.message;
+        }
+      });
+    }
   }
 
   const container = document.getElementById('admin-results');

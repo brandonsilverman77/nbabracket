@@ -37,6 +37,10 @@
 
     <!-- Bracket Tab -->
     <div id="bracket-tab" class="tab-content active">
+      <div id="bracket-version-toggle" class="bracket-version-toggle hidden">
+        <button class="version-btn active" data-version="v1">Bracket 1 (Original)</button>
+        <button class="version-btn" data-version="v2">Bracket 2 (Revised — Half Points)</button>
+      </div>
       <div class="bracket-controls">
         <div class="entry-selector">
           <label for="entry-name">Your Name:</label>
@@ -52,6 +56,9 @@
         </div>
         <div id="lock-banner" class="lock-banner hidden">
           Picks are locked — the playoffs have started!
+        </div>
+        <div id="v2-banner" class="lock-banner hidden" style="background: #6366f1;">
+          Bracket 2: Round 1 results are locked in. Pick the rest!
         </div>
       </div>
 
@@ -117,7 +124,7 @@
           <button class="subtab-btn" data-subtab="all-time">All-Time</button>
         </div>
         <div class="scoring-info">
-          <p><strong>Scoring:</strong> Correct winner: 2pts | Correct # of games: +2pts | Only person to pick winner: +2pts</p>
+          <p><strong>Scoring:</strong> Correct winner: 2pts | Correct # of games: +2pts | Only person to pick winner: +2pts. Bracket 2 picks are worth half (Round 2+).</p>
         </div>
 
         <div id="this-year-subtab" class="subtab-content active">
@@ -126,7 +133,9 @@
               <tr>
                 <th>Rank</th>
                 <th>Name</th>
-                <th>Score</th>
+                <th>Bracket 1</th>
+                <th>Bracket 2</th>
+                <th>Total</th>
                 <th>Correct Picks</th>
               </tr>
             </thead>
@@ -156,6 +165,12 @@
       <div class="admin-container">
         <h2>Enter Results</h2>
         <p class="muted">Select each series winner and number of games as the playoffs progress.</p>
+        <div class="admin-section-divider">
+          <h3>Bracket 2 (Revised Picks)</h3>
+          <p class="muted">Once Round 1 ends, unlock Bracket 2 so users can submit revised picks for Round 2+ at half points.</p>
+          <button id="toggle-v2-btn" class="primary-btn">Unlock Bracket 2</button>
+          <span id="v2-status" class="muted"></span>
+        </div>
         <div class="admin-section-divider">
           <h3>Random Bot</h3>
           <p class="muted">Generate a completely random bracket to compete against your friends.</p>

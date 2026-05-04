@@ -165,6 +165,37 @@ nav {
   margin-left: 1rem;
 }
 
+/* Bracket Version Toggle */
+.bracket-version-toggle {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.6rem 2rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.version-btn {
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: var(--surface2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.version-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.version-btn:hover:not(.active) {
+  color: var(--text);
+}
+
 /* Bracket Controls */
 .bracket-controls {
   padding: 1.25rem 2rem;

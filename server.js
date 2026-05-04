@@ -65,7 +65,39 @@ async function initDB() {
     );
   }
 
+  // V2 bracket support: picks_v2 column
+  await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS picks_v2 JSONB`);
+
+  // Settings table for global state (e.g., v2_unlocked)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+  await pool.query(`
+    INSERT INTO settings (key, value) VALUES ('v2_unlocked', 'false')
+    ON CONFLICT (key) DO NOTHING
+  `);
+
   console.log('Database initialized');
+}
+
+async function getSetting(key) {
+  const { rows } = await pool.query('SELECT value FROM settings WHERE key = $1', [key]);
+  return rows[0]?.value;
+}
+
+async function setSetting(key, value) {
+  await pool.query(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = $2`,
+    [key, value]
+  );
+}
+
+async function isV2Unlocked() {
+  return (await getSetting('v2_unlocked')) === 'true';
 }
 
 // Middleware
@@ -136,21 +168,34 @@ app.post('/api/logout', (req, res) => {
 });
 
 // Bracket config
-app.get('/api/config', requireAuth, (req, res) => {
+app.get('/api/config', requireAuth, async (req, res) => {
   res.json({
     locked: isLocked(),
     lockDate: LOCK_DATE,
-    isAdmin: req.session.isAdmin
+    isAdmin: req.session.isAdmin,
+    v2Unlocked: await isV2Unlocked(),
   });
+});
+
+// Admin: toggle V2 unlock
+app.post('/api/admin/toggle-v2', requireAdmin, async (req, res) => {
+  try {
+    const current = await isV2Unlocked();
+    await setSetting('v2_unlocked', current ? 'false' : 'true');
+    res.json({ success: true, v2Unlocked: !current });
+  } catch (err) {
+    console.error('Error toggling v2:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // Entries CRUD
 app.get('/api/entries', requireAuth, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT name, picks, updated_at FROM entries ORDER BY name');
+    const { rows } = await pool.query('SELECT name, picks, picks_v2, updated_at FROM entries ORDER BY name');
     const entries = {};
     for (const row of rows) {
-      entries[row.name] = { picks: row.picks, updatedAt: row.updated_at };
+      entries[row.name] = { picks: row.picks, picks_v2: row.picks_v2, updatedAt: row.updated_at };
     }
     res.json(entries);
   } catch (err) {
@@ -177,6 +222,33 @@ app.post('/api/entries', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Error saving entry:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Save V2 (revised) picks
+app.post('/api/entries/v2', requireAuth, async (req, res) => {
+  if (!(await isV2Unlocked())) {
+    return res.status(403).json({ error: 'Bracket 2 is not yet unlocked' });
+  }
+  const { name, picks } = req.body;
+  if (!name || !picks) {
+    return res.status(400).json({ error: 'Name and picks required' });
+  }
+  const sanitizedName = name.trim().substring(0, 30);
+  try {
+    // Require an existing V1 entry
+    const { rowCount } = await pool.query('SELECT 1 FROM entries WHERE name = $1', [sanitizedName]);
+    if (rowCount === 0) {
+      return res.status(400).json({ error: 'Save your original bracket first' });
+    }
+    await pool.query(
+      `UPDATE entries SET picks_v2 = $2, updated_at = NOW() WHERE name = $1`,
+      [sanitizedName, JSON.stringify(picks)]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error saving v2 entry:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -311,52 +383,70 @@ app.post('/api/generate-random', requireAdmin, async (req, res) => {
   }
 });
 
-// Scoring: 2pts correct winner, +2pts correct games, +2pts unique pick
-app.get('/api/leaderboard', requireAuth, async (req, res) => {
-  try {
-    const { rows: entryRows } = await pool.query('SELECT name, picks, updated_at FROM entries ORDER BY name');
-    const { rows: resultRows } = await pool.query("SELECT data FROM results WHERE id = 'current'");
-    const results = resultRows[0]?.data || {};
+// Scoring helper: returns per-entry V1/V2 scores given results.
+// V1: 2pts winner, +2pts games, +2pts unique. V2 (Round 2+ only): half points.
+function computeScores(entryRows, results) {
+  // Count winner picks per matchup, separately for V1 and V2
+  const winnerCountsV1 = {};
+  const winnerCountsV2 = {};
+  for (const [matchupId, result] of Object.entries(results)) {
+    if (!result.winner) continue;
+    winnerCountsV1[matchupId] = 0;
+    winnerCountsV2[matchupId] = 0;
+    for (const row of entryRows) {
+      const p1 = row.picks?.[matchupId];
+      if (p1 && p1.winner === result.winner) winnerCountsV1[matchupId]++;
+      const p2 = row.picks_v2?.[matchupId];
+      if (p2 && p2.winner === result.winner) winnerCountsV2[matchupId]++;
+    }
+  }
 
-    // First pass: count how many people picked each winner per matchup
-    const winnerCounts = {};
+  return entryRows.map(row => {
+    let score_v1 = 0, score_v2 = 0, correct = 0, total = 0;
+
     for (const [matchupId, result] of Object.entries(results)) {
       if (!result.winner) continue;
-      winnerCounts[matchupId] = 0;
-      for (const row of entryRows) {
-        const pick = row.picks[matchupId];
-        if (pick && pick.winner === result.winner) {
-          winnerCounts[matchupId]++;
-        }
+      total++;
+
+      const p1 = row.picks?.[matchupId];
+      if (p1 && p1.winner === result.winner) {
+        score_v1 += 2;
+        correct++;
+        if (p1.games && result.games && p1.games === result.games) score_v1 += 2;
+        if (winnerCountsV1[matchupId] === 1) score_v1 += 2;
+      }
+
+      // V2 only counts for Round 2+
+      const round = matchupId.split('_')[0];
+      if (round === 'round1') continue;
+
+      const p2 = row.picks_v2?.[matchupId];
+      if (p2 && p2.winner === result.winner) {
+        score_v2 += 1; // half points
+        if (p2.games && result.games && p2.games === result.games) score_v2 += 1;
+        if (winnerCountsV2[matchupId] === 1) score_v2 += 1;
       }
     }
 
-    const leaderboard = entryRows.map(row => {
-      let score = 0;
-      let correct = 0;
-      let total = 0;
+    return {
+      name: row.name,
+      score_v1,
+      score_v2,
+      score: score_v1 + score_v2,
+      correct,
+      total,
+      updatedAt: row.updated_at,
+    };
+  });
+}
 
-      for (const [matchupId, result] of Object.entries(results)) {
-        if (!result.winner) continue;
-        const pick = row.picks[matchupId];
-        if (!pick) continue;
-        total++;
+app.get('/api/leaderboard', requireAuth, async (req, res) => {
+  try {
+    const { rows: entryRows } = await pool.query('SELECT name, picks, picks_v2, updated_at FROM entries ORDER BY name');
+    const { rows: resultRows } = await pool.query("SELECT data FROM results WHERE id = 'current'");
+    const results = resultRows[0]?.data || {};
 
-        if (pick.winner === result.winner) {
-          score += 2; // correct winner
-          correct++;
-          if (pick.games && result.games && pick.games === result.games) {
-            score += 2; // correct games
-          }
-          if (winnerCounts[matchupId] === 1) {
-            score += 2; // only person to pick this winner
-          }
-        }
-      }
-
-      return { name: row.name, score, correct, total, updatedAt: row.updated_at };
-    });
-
+    const leaderboard = computeScores(entryRows, results);
     leaderboard.sort((a, b) => b.score - a.score);
     res.json(leaderboard);
   } catch (err) {
@@ -383,37 +473,14 @@ app.get('/api/leaderboard/all-time', requireAuth, async (req, res) => {
       'SELECT name, SUM(score) as score, SUM(correct) as correct, SUM(total) as total FROM historical_scores GROUP BY name'
     );
 
-    // Get current year scores (same logic as /api/leaderboard)
-    const { rows: entryRows } = await pool.query('SELECT name, picks FROM entries ORDER BY name');
+    // Get current year scores (V1 + V2 combined)
+    const { rows: entryRows } = await pool.query('SELECT name, picks, picks_v2 FROM entries ORDER BY name');
     const { rows: resultRows } = await pool.query("SELECT data FROM results WHERE id = 'current'");
     const results = resultRows[0]?.data || {};
 
-    const winnerCounts = {};
-    for (const [matchupId, result] of Object.entries(results)) {
-      if (!result.winner) continue;
-      winnerCounts[matchupId] = 0;
-      for (const row of entryRows) {
-        const pick = row.picks[matchupId];
-        if (pick && pick.winner === result.winner) winnerCounts[matchupId]++;
-      }
-    }
-
     const currentScores = {};
-    for (const row of entryRows) {
-      let score = 0, correct = 0, total = 0;
-      for (const [matchupId, result] of Object.entries(results)) {
-        if (!result.winner) continue;
-        const pick = row.picks[matchupId];
-        if (!pick) continue;
-        total++;
-        if (pick.winner === result.winner) {
-          score += 2;
-          correct++;
-          if (pick.games && result.games && pick.games === result.games) score += 2;
-          if (winnerCounts[matchupId] === 1) score += 2;
-        }
-      }
-      currentScores[row.name] = { score, correct, total };
+    for (const r of computeScores(entryRows, results)) {
+      currentScores[r.name] = { score: r.score, correct: r.correct, total: r.total };
     }
 
     // Merge historical + current using canonical names
