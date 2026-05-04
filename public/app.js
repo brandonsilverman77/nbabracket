@@ -152,18 +152,37 @@ function setupEventListeners() {
       document.querySelectorAll('.version-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       state.activeBracket = btn.dataset.version;
-      const v2Banner = document.getElementById('v2-banner');
-      const lockBanner = document.getElementById('lock-banner');
-      if (state.activeBracket === 'v2') {
-        v2Banner.classList.remove('hidden');
-        lockBanner.classList.add('hidden');
-      } else {
-        v2Banner.classList.add('hidden');
-        if (state.locked) lockBanner.classList.remove('hidden');
-      }
+      updateBanners();
       renderBracket();
     });
   });
+}
+
+function updateBanners() {
+  const v2Banner = document.getElementById('v2-banner');
+  const lockBanner = document.getElementById('lock-banner');
+  if (state.activeBracket === 'v2') {
+    if (state.viewingEntry) {
+      v2Banner.classList.remove('hidden');
+      v2Banner.textContent = `Viewing ${state.viewingEntry}'s Bracket 2`;
+    } else {
+      v2Banner.classList.remove('hidden');
+      v2Banner.textContent = 'Bracket 2: Round 1 results are locked in. Pick the rest!';
+    }
+    lockBanner.classList.add('hidden');
+  } else {
+    if (state.viewingEntry) {
+      v2Banner.classList.remove('hidden');
+      v2Banner.textContent = `Viewing ${state.viewingEntry}'s Bracket 1`;
+    } else {
+      v2Banner.classList.add('hidden');
+    }
+    if (!state.viewingEntry && state.locked) {
+      lockBanner.classList.remove('hidden');
+    } else {
+      lockBanner.classList.add('hidden');
+    }
+  }
 }
 
 async function handleLogin(e) {
@@ -213,13 +232,17 @@ async function enterApp() {
   if (state.isAdmin) renderAdmin();
 }
 
+function anyEntryHasV2() {
+  return Object.values(state.entries || {}).some(e => e.picks_v2 && Object.keys(e.picks_v2).length > 0);
+}
+
 function updateBracketVersionToggle() {
   const toggle = document.getElementById('bracket-version-toggle');
-  if (state.v2Unlocked) {
+  // Show toggle if V2 is unlocked OR if any entry has V2 picks (so we can view them)
+  if (state.v2Unlocked || anyEntryHasV2()) {
     toggle.classList.remove('hidden');
   } else {
     toggle.classList.add('hidden');
-    // Force back to v1 if v2 was disabled
     state.activeBracket = 'v1';
   }
 }
@@ -228,6 +251,7 @@ async function loadEntries() {
   state.entries = await api('/api/entries');
   state.results = await api('/api/results');
   populateEntryDropdown();
+  updateBracketVersionToggle();
 }
 
 function populateEntryDropdown() {
@@ -274,6 +298,7 @@ function handleViewEntry() {
     state.picksV2 = JSON.parse(JSON.stringify(entry.picks_v2 || {}));
     state.playinSelections = entry.picks?._playinSelections || { west_7: null, west_8: null, east_7: null, east_8: null };
   }
+  updateBanners();
   renderBracket();
 }
 
