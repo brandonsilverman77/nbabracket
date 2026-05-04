@@ -318,7 +318,7 @@ async function handleSave() {
   }
 }
 
-// Get team for a seed, factoring in play-in selections
+// Get team for a seed, factoring in play-in selections (V1: user's picks)
 function getTeam(conf, seed) {
   if (seed === 7 || seed === 8) {
     const key = `${conf}_${seed}`;
@@ -328,6 +328,22 @@ function getTeam(conf, seed) {
       if (team) return { ...team, seed };
     }
     return null; // TBD
+  }
+  const team = TEAMS[conf][seed];
+  return team ? { ...team, seed } : null;
+}
+
+// Get team for a seed using ACTUAL play-in results (V2 + admin)
+function getActualTeam(conf, seed) {
+  if (seed === 7 || seed === 8) {
+    const key = `playin_${conf}_${seed}`;
+    const result = state.results?.[key];
+    if (result?.winner) {
+      const team = PLAYIN_TEAMS[conf].find(t => t.abbr === result.winner);
+      if (team) return { ...team, seed };
+    }
+    // Fallback: use the user's V1 play-in selection so something displays
+    return getTeam(conf, seed);
   }
   const team = TEAMS[conf][seed];
   return team ? { ...team, seed } : null;
@@ -475,8 +491,9 @@ function renderFirstRound(conf) {
 
   FIRST_ROUND[conf].forEach(matchup => {
     const [highSeed, lowSeed] = matchup.seeds;
-    const team1 = getTeam(conf, highSeed);
-    const team2 = getTeam(conf, lowSeed);
+    const teamFn = state.activeBracket === 'v2' ? getActualTeam : getTeam;
+    const team1 = teamFn(conf, highSeed);
+    const team2 = teamFn(conf, lowSeed);
     // In V2 Round 1, "winner" is the actual result, not the user's pick
     const pick = (state.activeBracket === 'v2')
       ? state.results[matchup.id]
@@ -831,6 +848,36 @@ function renderAdmin() {
   const container = document.getElementById('admin-results');
   container.innerHTML = '';
 
+  // Play-in winners section (actual 7/8 seeds)
+  const playinDiv = document.createElement('div');
+  playinDiv.className = 'admin-round';
+  playinDiv.innerHTML = '<h3>Actual Play-In Winners</h3>';
+  ['west', 'east'].forEach(conf => {
+    [7, 8].forEach(seed => {
+      const id = `playin_${conf}_${seed}`;
+      const div = document.createElement('div');
+      div.className = 'admin-matchup';
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'matchup-label';
+      labelSpan.textContent = `${conf.toUpperCase()} ${seed}-seed`;
+      const select = document.createElement('select');
+      select.dataset.matchupId = id;
+      select.dataset.field = 'winner';
+      select.innerHTML = '<option value="">-- Select --</option>';
+      PLAYIN_TEAMS[conf].forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.abbr;
+        opt.textContent = `${t.city} ${t.name}`;
+        if (state.results[id]?.winner === t.abbr) opt.selected = true;
+        select.appendChild(opt);
+      });
+      div.appendChild(labelSpan);
+      div.appendChild(select);
+      playinDiv.appendChild(div);
+    });
+  });
+  container.appendChild(playinDiv);
+
   const rounds = [
     { label: 'First Round - West', matchups: FIRST_ROUND.west, conf: 'west', round: 'round1' },
     { label: 'First Round - East', matchups: FIRST_ROUND.east, conf: 'east', round: 'round1' },
@@ -854,8 +901,8 @@ function renderAdmin() {
       if (roundDef.round === 'round1') {
         const [s1, s2] = matchup.seeds;
         const conf = roundDef.conf;
-        const t1 = getTeam(conf, s1);
-        const t2 = getTeam(conf, s2);
+        const t1 = getActualTeam(conf, s1);
+        const t2 = getActualTeam(conf, s2);
         teams = [t1, t2].filter(Boolean);
       } else {
         teams = matchup.from.map(fromId => getWinnerFromResults(fromId)).filter(Boolean);
