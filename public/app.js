@@ -153,10 +153,13 @@ function setupEventListeners() {
       btn.classList.add('active');
       state.activeBracket = btn.dataset.version;
       const v2Banner = document.getElementById('v2-banner');
+      const lockBanner = document.getElementById('lock-banner');
       if (state.activeBracket === 'v2') {
         v2Banner.classList.remove('hidden');
+        lockBanner.classList.add('hidden');
       } else {
         v2Banner.classList.add('hidden');
+        if (state.locked) lockBanner.classList.remove('hidden');
       }
       renderBracket();
     });
@@ -248,6 +251,13 @@ function activePicks() {
 function setActivePicks(newPicks) {
   if (state.activeBracket === 'v2') state.picksV2 = newPicks;
   else state.picks = newPicks;
+}
+
+// Whether the user can click/edit picks right now (in the active bracket)
+function isEditable() {
+  if (state.viewingEntry) return false;
+  if (state.activeBracket === 'v2') return state.v2Unlocked;
+  return !state.locked;
 }
 
 function handleViewEntry() {
@@ -375,7 +385,7 @@ function createTeamEl(team, matchupId, isSelected, resultStatus) {
 
   // In V2 mode, Round 1 is read-only (results are locked in)
   const isV2Round1 = state.activeBracket === 'v2' && matchupId.startsWith('round1_');
-  if (team && !state.locked && !state.viewingEntry && !isV2Round1) {
+  if (team && isEditable() && !isV2Round1) {
     div.addEventListener('click', () => {
       selectWinner(matchupId, getTeamId(team));
     });
@@ -404,7 +414,9 @@ function createGamesSelector(matchupId) {
     select.appendChild(opt);
   }
 
-  if (!state.locked && !state.viewingEntry) {
+  // In V2, Round 1 games are not editable (results locked)
+  const isV2Round1 = state.activeBracket === 'v2' && matchupId.startsWith('round1_');
+  if (isEditable() && !isV2Round1) {
     select.addEventListener('change', () => {
       activePicks()[matchupId].games = select.value ? parseInt(select.value) : null;
     });
@@ -432,7 +444,8 @@ function createPlayinSelector(conf, seed) {
     select.appendChild(opt);
   });
 
-  if (!state.locked && !state.viewingEntry) {
+  // Play-in selector only relevant in V1
+  if (state.activeBracket === 'v1' && isEditable()) {
     select.addEventListener('change', () => {
       state.playinSelections[key] = select.value || null;
       renderBracket();
@@ -630,7 +643,7 @@ function renderFinals() {
 }
 
 function selectWinner(matchupId, teamAbbr) {
-  if (state.locked || state.viewingEntry) return;
+  if (!isEditable()) return;
   // V2 Round 1 is read-only (locked to actual results)
   if (state.activeBracket === 'v2' && matchupId.startsWith('round1_')) return;
 
