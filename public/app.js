@@ -89,9 +89,11 @@ let state = {
   isAdmin: false,
   locked: false,
   v2Unlocked: false,
-  activeBracket: 'v1',  // 'v1' or 'v2'
+  v3Unlocked: false,
+  activeBracket: 'v1',  // 'v1', 'v2', or 'v3'
   picks: {},
   picksV2: {},
+  picksV3: {},
   entries: {},
   results: {},
   playinSelections: {
@@ -100,6 +102,17 @@ let state = {
   },
   viewingEntry: null
 };
+
+// In V3 mode, rounds 1 and 2 are locked (results-driven). In V2, only round 1 is.
+function isReadOnlyRound(matchupId) {
+  if (state.activeBracket === 'v3') {
+    return matchupId.startsWith('round1_') || matchupId.startsWith('round2_');
+  }
+  if (state.activeBracket === 'v2') {
+    return matchupId.startsWith('round1_');
+  }
+  return false;
+}
 
 // API helpers
 async function api(path, options = {}) {
@@ -160,27 +173,30 @@ function setupEventListeners() {
 
 function updateBanners() {
   const v2Banner = document.getElementById('v2-banner');
+  const v3Banner = document.getElementById('v3-banner');
   const lockBanner = document.getElementById('lock-banner');
-  if (state.activeBracket === 'v2') {
-    if (state.viewingEntry) {
-      v2Banner.classList.remove('hidden');
-      v2Banner.textContent = `Viewing ${state.viewingEntry}'s Bracket 2`;
-    } else {
-      v2Banner.classList.remove('hidden');
-      v2Banner.textContent = 'Bracket 2: Round 1 results are locked in. Pick the rest!';
-    }
-    lockBanner.classList.add('hidden');
+
+  v2Banner.classList.add('hidden');
+  v3Banner.classList.add('hidden');
+  lockBanner.classList.add('hidden');
+
+  if (state.activeBracket === 'v3') {
+    v3Banner.classList.remove('hidden');
+    v3Banner.textContent = state.viewingEntry
+      ? `Viewing ${state.viewingEntry}'s Bracket 3`
+      : 'Bracket 3: Rounds 1 & 2 results are locked in. Pick the Conf Finals + NBA Finals!';
+  } else if (state.activeBracket === 'v2') {
+    v2Banner.classList.remove('hidden');
+    v2Banner.textContent = state.viewingEntry
+      ? `Viewing ${state.viewingEntry}'s Bracket 2`
+      : 'Bracket 2: Round 1 results are locked in. Pick the rest!';
   } else {
+    // V1
     if (state.viewingEntry) {
       v2Banner.classList.remove('hidden');
       v2Banner.textContent = `Viewing ${state.viewingEntry}'s Bracket 1`;
-    } else {
-      v2Banner.classList.add('hidden');
-    }
-    if (!state.viewingEntry && state.locked) {
+    } else if (state.locked) {
       lockBanner.classList.remove('hidden');
-    } else {
-      lockBanner.classList.add('hidden');
     }
   }
 }
@@ -221,6 +237,7 @@ async function enterApp() {
   const config = await api('/api/config');
   state.locked = config.locked;
   state.v2Unlocked = !!config.v2Unlocked;
+  state.v3Unlocked = !!config.v3Unlocked;
   if (state.locked) {
     document.getElementById('lock-banner').classList.remove('hidden');
   }
@@ -232,19 +249,28 @@ async function enterApp() {
   if (state.isAdmin) renderAdmin();
 }
 
-function anyEntryHasV2() {
-  return Object.values(state.entries || {}).some(e => e.picks_v2 && Object.keys(e.picks_v2).length > 0);
+function anyEntryHas(version) {
+  const key = version === 'v2' ? 'picks_v2' : 'picks_v3';
+  return Object.values(state.entries || {}).some(e => e[key] && Object.keys(e[key]).length > 0);
 }
 
 function updateBracketVersionToggle() {
   const toggle = document.getElementById('bracket-version-toggle');
-  // Show toggle if V2 is unlocked OR if any entry has V2 picks (so we can view them)
-  if (state.v2Unlocked || anyEntryHasV2()) {
-    toggle.classList.remove('hidden');
-  } else {
-    toggle.classList.add('hidden');
-    state.activeBracket = 'v1';
-  }
+  const v2Btn = toggle.querySelector('[data-version="v2"]');
+  const v3Btn = toggle.querySelector('[data-version="v3"]');
+
+  const showV2 = state.v2Unlocked || anyEntryHas('v2');
+  const showV3 = state.v3Unlocked || anyEntryHas('v3');
+
+  if (showV2 || showV3) toggle.classList.remove('hidden');
+  else toggle.classList.add('hidden');
+
+  if (v2Btn) v2Btn.classList.toggle('hidden', !showV2);
+  if (v3Btn) v3Btn.classList.toggle('hidden', !showV3);
+
+  // If current selection got hidden, fall back to v1
+  if (state.activeBracket === 'v2' && !showV2) state.activeBracket = 'v1';
+  if (state.activeBracket === 'v3' && !showV3) state.activeBracket = 'v1';
 }
 
 async function loadEntries() {
@@ -267,19 +293,23 @@ function populateEntryDropdown() {
   if (current && state.entries[current]) select.value = current;
 }
 
-// Returns the picks object for the currently active bracket (v1 or v2)
+// Returns the picks object for the currently active bracket
 function activePicks() {
-  return state.activeBracket === 'v2' ? state.picksV2 : state.picks;
+  if (state.activeBracket === 'v3') return state.picksV3;
+  if (state.activeBracket === 'v2') return state.picksV2;
+  return state.picks;
 }
 
 function setActivePicks(newPicks) {
-  if (state.activeBracket === 'v2') state.picksV2 = newPicks;
+  if (state.activeBracket === 'v3') state.picksV3 = newPicks;
+  else if (state.activeBracket === 'v2') state.picksV2 = newPicks;
   else state.picks = newPicks;
 }
 
 // Whether the user can click/edit picks right now (in the active bracket)
 function isEditable() {
   if (state.viewingEntry) return false;
+  if (state.activeBracket === 'v3') return state.v3Unlocked;
   if (state.activeBracket === 'v2') return state.v2Unlocked;
   return !state.locked;
 }
@@ -290,12 +320,14 @@ function handleViewEntry() {
     state.viewingEntry = null;
     state.picks = {};
     state.picksV2 = {};
+    state.picksV3 = {};
     state.playinSelections = { west_7: null, west_8: null, east_7: null, east_8: null };
   } else {
     state.viewingEntry = name;
     const entry = state.entries[name];
     state.picks = JSON.parse(JSON.stringify(entry.picks || {}));
     state.picksV2 = JSON.parse(JSON.stringify(entry.picks_v2 || {}));
+    state.picksV3 = JSON.parse(JSON.stringify(entry.picks_v3 || {}));
     state.playinSelections = entry.picks?._playinSelections || { west_7: null, west_8: null, east_7: null, east_8: null };
   }
   updateBanners();
@@ -309,6 +341,7 @@ function handleLoad() {
     const entry = state.entries[name];
     state.picks = JSON.parse(JSON.stringify(entry.picks || {}));
     state.picksV2 = JSON.parse(JSON.stringify(entry.picks_v2 || {}));
+    state.picksV3 = JSON.parse(JSON.stringify(entry.picks_v3 || {}));
     state.playinSelections = state.picks._playinSelections || { west_7: null, west_8: null, east_7: null, east_8: null };
     state.viewingEntry = null;
     document.getElementById('view-entry-select').value = '';
@@ -319,6 +352,18 @@ function handleLoad() {
 async function handleSave() {
   const name = document.getElementById('entry-name').value.trim();
   if (!name) return alert('Enter your name first!');
+
+  if (state.activeBracket === 'v3') {
+    if (!state.v3Unlocked) return alert('Bracket 3 is not unlocked yet.');
+    try {
+      await api('/api/entries/v3', { method: 'POST', body: { name, picks: state.picksV3 } });
+      await loadEntries();
+      alert('Bracket 3 picks saved!');
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
 
   if (state.activeBracket === 'v2') {
     if (!state.v2Unlocked) return alert('Bracket 2 is not unlocked yet.');
@@ -424,9 +469,8 @@ function createTeamEl(team, matchupId, isSelected, resultStatus) {
 
   div.appendChild(nameSpan);
 
-  // In V2 mode, Round 1 is read-only (results are locked in)
-  const isV2Round1 = state.activeBracket === 'v2' && matchupId.startsWith('round1_');
-  if (team && isEditable() && !isV2Round1) {
+  // In V2/V3 mode, earlier rounds are read-only (results are locked in)
+  if (team && isEditable() && !isReadOnlyRound(matchupId)) {
     div.addEventListener('click', () => {
       selectWinner(matchupId, getTeamId(team));
     });
@@ -436,7 +480,8 @@ function createTeamEl(team, matchupId, isSelected, resultStatus) {
 }
 
 function createGamesSelector(matchupId) {
-  const pick = activePicks()[matchupId];
+  // For read-only rounds in V2/V3, use the actual results; otherwise use the user's pick
+  const pick = isReadOnlyRound(matchupId) ? state.results[matchupId] : activePicks()[matchupId];
   if (!pick || !pick.winner) return null;
 
   const div = document.createElement('div');
@@ -455,9 +500,8 @@ function createGamesSelector(matchupId) {
     select.appendChild(opt);
   }
 
-  // In V2, Round 1 games are not editable (results locked)
-  const isV2Round1 = state.activeBracket === 'v2' && matchupId.startsWith('round1_');
-  if (isEditable() && !isV2Round1) {
+  // In V2/V3, earlier round games are not editable (results locked)
+  if (isEditable() && !isReadOnlyRound(matchupId)) {
     select.addEventListener('change', () => {
       activePicks()[matchupId].games = select.value ? parseInt(select.value) : null;
     });
@@ -516,11 +560,13 @@ function renderFirstRound(conf) {
 
   FIRST_ROUND[conf].forEach(matchup => {
     const [highSeed, lowSeed] = matchup.seeds;
-    const teamFn = state.activeBracket === 'v2' ? getActualTeam : getTeam;
+    // V2/V3: use actual play-in seeds. V1: use user's play-in picks
+    const useActual = state.activeBracket === 'v2' || state.activeBracket === 'v3';
+    const teamFn = useActual ? getActualTeam : getTeam;
     const team1 = teamFn(conf, highSeed);
     const team2 = teamFn(conf, lowSeed);
-    // In V2 Round 1, "winner" is the actual result, not the user's pick
-    const pick = (state.activeBracket === 'v2')
+    // For read-only rounds, "winner" comes from actual results
+    const pick = isReadOnlyRound(matchup.id)
       ? state.results[matchup.id]
       : activePicks()[matchup.id];
 
@@ -559,9 +605,9 @@ function renderFirstRound(conf) {
 }
 
 function getWinnerTeam(matchupId) {
-  // In V2 mode, Round 1 winners come from actual results (locked in)
+  // In V2/V3, locked-round winners come from actual results
   let abbr;
-  if (state.activeBracket === 'v2' && matchupId.startsWith('round1_')) {
+  if (isReadOnlyRound(matchupId)) {
     const result = state.results[matchupId];
     if (!result || !result.winner) return null;
     abbr = result.winner;
@@ -589,7 +635,7 @@ function renderLaterRounds(conf) {
   ROUND2[conf].forEach(matchup => {
     const team1 = getWinnerTeam(matchup.from[0]);
     const team2 = getWinnerTeam(matchup.from[1]);
-    const pick = activePicks()[matchup.id];
+    const pick = isReadOnlyRound(matchup.id) ? state.results[matchup.id] : activePicks()[matchup.id];
 
     const matchupEl = document.createElement('div');
     matchupEl.className = 'matchup';
@@ -686,8 +732,8 @@ function renderFinals() {
 
 function selectWinner(matchupId, teamAbbr) {
   if (!isEditable()) return;
-  // V2 Round 1 is read-only (locked to actual results)
-  if (state.activeBracket === 'v2' && matchupId.startsWith('round1_')) return;
+  // Some rounds are read-only in V2/V3 (locked to actual results)
+  if (isReadOnlyRound(matchupId)) return;
 
   if (teamAbbr === 'MIN') {
     showGeorgeModal(() => {
@@ -781,6 +827,7 @@ async function renderLeaderboard() {
           <td>0</td>
           <td>0</td>
           <td>0</td>
+          <td>0</td>
           <td>--</td>
         `;
         tbody.appendChild(tr);
@@ -789,6 +836,7 @@ async function renderLeaderboard() {
     }
 
     noResults.classList.add('hidden');
+    const fmt = n => Number.isInteger(n) ? n : (Math.round(n * 10) / 10);
     leaderboard.forEach((entry, i) => {
       const rank = i + 1;
       const tr = document.createElement('tr');
@@ -796,9 +844,10 @@ async function renderLeaderboard() {
       tr.innerHTML = `
         <td class="${rankClass}">${rank === 1 ? '\u{1F947}' : rank === 2 ? '\u{1F948}' : rank === 3 ? '\u{1F949}' : rank}</td>
         <td class="${rankClass}">${escapeHtml(entry.name)}</td>
-        <td class="${rankClass}">${entry.score_v1 ?? 0}</td>
-        <td class="${rankClass}">${entry.score_v2 ?? 0}</td>
-        <td class="${rankClass}"><strong>${entry.score}</strong></td>
+        <td class="${rankClass}">${fmt(entry.score_v1 ?? 0)}</td>
+        <td class="${rankClass}">${fmt(entry.score_v2 ?? 0)}</td>
+        <td class="${rankClass}">${fmt(entry.score_v3 ?? 0)}</td>
+        <td class="${rankClass}"><strong>${fmt(entry.score)}</strong></td>
         <td>${entry.correct}/${entry.total}</td>
       `;
       tbody.appendChild(tr);
@@ -865,6 +914,27 @@ function renderAdmin() {
           updateBracketVersionToggle();
         } catch (err) {
           document.getElementById('v2-status').textContent = ' Error: ' + err.message;
+        }
+      });
+    }
+  }
+
+  // Wire up V3 toggle button
+  const v3Btn = document.getElementById('toggle-v3-btn');
+  if (v3Btn) {
+    v3Btn.textContent = state.v3Unlocked ? 'Lock Bracket 3' : 'Unlock Bracket 3';
+    if (!v3Btn.dataset.wired) {
+      v3Btn.dataset.wired = 'true';
+      v3Btn.addEventListener('click', async () => {
+        try {
+          const result = await api('/api/admin/toggle-v3', { method: 'POST' });
+          state.v3Unlocked = result.v3Unlocked;
+          v3Btn.textContent = state.v3Unlocked ? 'Lock Bracket 3' : 'Unlock Bracket 3';
+          document.getElementById('v3-status').textContent =
+            state.v3Unlocked ? ' Bracket 3 is now unlocked!' : ' Bracket 3 is locked.';
+          updateBracketVersionToggle();
+        } catch (err) {
+          document.getElementById('v3-status').textContent = ' Error: ' + err.message;
         }
       });
     }
