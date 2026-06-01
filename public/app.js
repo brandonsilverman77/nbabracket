@@ -90,10 +90,12 @@ let state = {
   locked: false,
   v2Unlocked: false,
   v3Unlocked: false,
-  activeBracket: 'v1',  // 'v1', 'v2', or 'v3'
+  v4Unlocked: false,
+  activeBracket: 'v1',  // 'v1', 'v2', 'v3', or 'v4'
   picks: {},
   picksV2: {},
   picksV3: {},
+  picksV4: {},
   entries: {},
   results: {},
   playinSelections: {
@@ -103,8 +105,12 @@ let state = {
   viewingEntry: null
 };
 
-// In V3 mode, rounds 1 and 2 are locked (results-driven). In V2, only round 1 is.
+// In V4: everything but finals is read-only. In V3: rounds 1+2 are locked.
+// In V2: only round 1 is locked.
 function isReadOnlyRound(matchupId) {
+  if (state.activeBracket === 'v4') {
+    return !matchupId.startsWith('finals_');
+  }
   if (state.activeBracket === 'v3') {
     return matchupId.startsWith('round1_') || matchupId.startsWith('round2_');
   }
@@ -174,13 +180,20 @@ function setupEventListeners() {
 function updateBanners() {
   const v2Banner = document.getElementById('v2-banner');
   const v3Banner = document.getElementById('v3-banner');
+  const v4Banner = document.getElementById('v4-banner');
   const lockBanner = document.getElementById('lock-banner');
 
   v2Banner.classList.add('hidden');
   v3Banner.classList.add('hidden');
+  v4Banner.classList.add('hidden');
   lockBanner.classList.add('hidden');
 
-  if (state.activeBracket === 'v3') {
+  if (state.activeBracket === 'v4') {
+    v4Banner.classList.remove('hidden');
+    v4Banner.textContent = state.viewingEntry
+      ? `Viewing ${state.viewingEntry}'s Bracket 4`
+      : 'Bracket 4: Everything but the NBA Finals is locked in. Pick the champion!';
+  } else if (state.activeBracket === 'v3') {
     v3Banner.classList.remove('hidden');
     v3Banner.textContent = state.viewingEntry
       ? `Viewing ${state.viewingEntry}'s Bracket 3`
@@ -238,6 +251,7 @@ async function enterApp() {
   state.locked = config.locked;
   state.v2Unlocked = !!config.v2Unlocked;
   state.v3Unlocked = !!config.v3Unlocked;
+  state.v4Unlocked = !!config.v4Unlocked;
   if (state.locked) {
     document.getElementById('lock-banner').classList.remove('hidden');
   }
@@ -250,7 +264,7 @@ async function enterApp() {
 }
 
 function anyEntryHas(version) {
-  const key = version === 'v2' ? 'picks_v2' : 'picks_v3';
+  const key = `picks_${version}`;
   return Object.values(state.entries || {}).some(e => e[key] && Object.keys(e[key]).length > 0);
 }
 
@@ -258,19 +272,22 @@ function updateBracketVersionToggle() {
   const toggle = document.getElementById('bracket-version-toggle');
   const v2Btn = toggle.querySelector('[data-version="v2"]');
   const v3Btn = toggle.querySelector('[data-version="v3"]');
+  const v4Btn = toggle.querySelector('[data-version="v4"]');
 
   const showV2 = state.v2Unlocked || anyEntryHas('v2');
   const showV3 = state.v3Unlocked || anyEntryHas('v3');
+  const showV4 = state.v4Unlocked || anyEntryHas('v4');
 
-  if (showV2 || showV3) toggle.classList.remove('hidden');
+  if (showV2 || showV3 || showV4) toggle.classList.remove('hidden');
   else toggle.classList.add('hidden');
 
   if (v2Btn) v2Btn.classList.toggle('hidden', !showV2);
   if (v3Btn) v3Btn.classList.toggle('hidden', !showV3);
+  if (v4Btn) v4Btn.classList.toggle('hidden', !showV4);
 
-  // If current selection got hidden, fall back to v1
   if (state.activeBracket === 'v2' && !showV2) state.activeBracket = 'v1';
   if (state.activeBracket === 'v3' && !showV3) state.activeBracket = 'v1';
+  if (state.activeBracket === 'v4' && !showV4) state.activeBracket = 'v1';
 }
 
 async function loadEntries() {
@@ -295,13 +312,15 @@ function populateEntryDropdown() {
 
 // Returns the picks object for the currently active bracket
 function activePicks() {
+  if (state.activeBracket === 'v4') return state.picksV4;
   if (state.activeBracket === 'v3') return state.picksV3;
   if (state.activeBracket === 'v2') return state.picksV2;
   return state.picks;
 }
 
 function setActivePicks(newPicks) {
-  if (state.activeBracket === 'v3') state.picksV3 = newPicks;
+  if (state.activeBracket === 'v4') state.picksV4 = newPicks;
+  else if (state.activeBracket === 'v3') state.picksV3 = newPicks;
   else if (state.activeBracket === 'v2') state.picksV2 = newPicks;
   else state.picks = newPicks;
 }
@@ -309,6 +328,7 @@ function setActivePicks(newPicks) {
 // Whether the user can click/edit picks right now (in the active bracket)
 function isEditable() {
   if (state.viewingEntry) return false;
+  if (state.activeBracket === 'v4') return state.v4Unlocked;
   if (state.activeBracket === 'v3') return state.v3Unlocked;
   if (state.activeBracket === 'v2') return state.v2Unlocked;
   return !state.locked;
@@ -321,6 +341,7 @@ function handleViewEntry() {
     state.picks = {};
     state.picksV2 = {};
     state.picksV3 = {};
+    state.picksV4 = {};
     state.playinSelections = { west_7: null, west_8: null, east_7: null, east_8: null };
   } else {
     state.viewingEntry = name;
@@ -328,6 +349,7 @@ function handleViewEntry() {
     state.picks = JSON.parse(JSON.stringify(entry.picks || {}));
     state.picksV2 = JSON.parse(JSON.stringify(entry.picks_v2 || {}));
     state.picksV3 = JSON.parse(JSON.stringify(entry.picks_v3 || {}));
+    state.picksV4 = JSON.parse(JSON.stringify(entry.picks_v4 || {}));
     state.playinSelections = entry.picks?._playinSelections || { west_7: null, west_8: null, east_7: null, east_8: null };
   }
   updateBanners();
@@ -342,6 +364,7 @@ function handleLoad() {
     state.picks = JSON.parse(JSON.stringify(entry.picks || {}));
     state.picksV2 = JSON.parse(JSON.stringify(entry.picks_v2 || {}));
     state.picksV3 = JSON.parse(JSON.stringify(entry.picks_v3 || {}));
+    state.picksV4 = JSON.parse(JSON.stringify(entry.picks_v4 || {}));
     state.playinSelections = state.picks._playinSelections || { west_7: null, west_8: null, east_7: null, east_8: null };
     state.viewingEntry = null;
     document.getElementById('view-entry-select').value = '';
@@ -352,6 +375,18 @@ function handleLoad() {
 async function handleSave() {
   const name = document.getElementById('entry-name').value.trim();
   if (!name) return alert('Enter your name first!');
+
+  if (state.activeBracket === 'v4') {
+    if (!state.v4Unlocked) return alert('Bracket 4 is not unlocked yet.');
+    try {
+      await api('/api/entries/v4', { method: 'POST', body: { name, picks: state.picksV4 } });
+      await loadEntries();
+      alert('Bracket 4 picks saved!');
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
 
   if (state.activeBracket === 'v3') {
     if (!state.v3Unlocked) return alert('Bracket 3 is not unlocked yet.');
@@ -828,6 +863,7 @@ async function renderLeaderboard() {
           <td>0</td>
           <td>0</td>
           <td>0</td>
+          <td>0</td>
           <td>--</td>
         `;
         tbody.appendChild(tr);
@@ -847,6 +883,7 @@ async function renderLeaderboard() {
         <td class="${rankClass}">${fmt(entry.score_v1 ?? 0)}</td>
         <td class="${rankClass}">${fmt(entry.score_v2 ?? 0)}</td>
         <td class="${rankClass}">${fmt(entry.score_v3 ?? 0)}</td>
+        <td class="${rankClass}">${fmt(entry.score_v4 ?? 0)}</td>
         <td class="${rankClass}"><strong>${fmt(entry.score)}</strong></td>
         <td>${entry.correct}/${entry.total}</td>
       `;
@@ -935,6 +972,27 @@ function renderAdmin() {
           updateBracketVersionToggle();
         } catch (err) {
           document.getElementById('v3-status').textContent = ' Error: ' + err.message;
+        }
+      });
+    }
+  }
+
+  // Wire up V4 toggle button
+  const v4Btn = document.getElementById('toggle-v4-btn');
+  if (v4Btn) {
+    v4Btn.textContent = state.v4Unlocked ? 'Lock Bracket 4' : 'Unlock Bracket 4';
+    if (!v4Btn.dataset.wired) {
+      v4Btn.dataset.wired = 'true';
+      v4Btn.addEventListener('click', async () => {
+        try {
+          const result = await api('/api/admin/toggle-v4', { method: 'POST' });
+          state.v4Unlocked = result.v4Unlocked;
+          v4Btn.textContent = state.v4Unlocked ? 'Lock Bracket 4' : 'Unlock Bracket 4';
+          document.getElementById('v4-status').textContent =
+            state.v4Unlocked ? ' Bracket 4 is now unlocked!' : ' Bracket 4 is locked.';
+          updateBracketVersionToggle();
+        } catch (err) {
+          document.getElementById('v4-status').textContent = ' Error: ' + err.message;
         }
       });
     }

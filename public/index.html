@@ -41,6 +41,7 @@
         <button class="version-btn active" data-version="v1">Bracket 1</button>
         <button class="version-btn" data-version="v2">Bracket 2</button>
         <button class="version-btn" data-version="v3">Bracket 3</button>
+        <button class="version-btn" data-version="v4">Bracket 4</button>
       </div>
       <div class="bracket-controls">
         <div class="entry-selector">
@@ -63,6 +64,9 @@
         </div>
         <div id="v3-banner" class="lock-banner hidden" style="background: #8b5cf6;">
           Bracket 3: Rounds 1 & 2 results are locked in. Pick the Conf Finals + NBA Finals!
+        </div>
+        <div id="v4-banner" class="lock-banner hidden" style="background: #ec4899;">
+          Bracket 4: Everything but the NBA Finals is locked in. Pick the champion!
         </div>
       </div>
 
@@ -128,7 +132,7 @@
           <button class="subtab-btn" data-subtab="all-time">All-Time</button>
         </div>
         <div class="scoring-info">
-          <p><strong>Scoring:</strong> Correct winner: 2pts | Correct # of games: +2pts | Only person to pick winner: +2pts. Bracket 2 (Round 2+) picks are worth half. Bracket 3 (Conf Finals + Finals) picks are worth a quarter.</p>
+          <p><strong>Scoring:</strong> Correct winner: 2pts | Correct # of games: +2pts | Only person to pick winner: +2pts. Bracket 2 (Round 2+) picks are worth half. Bracket 3 (Conf Finals + Finals) and Bracket 4 (Finals only) are worth a quarter.</p>
         </div>
 
         <div id="this-year-subtab" class="subtab-content active">
@@ -140,6 +144,7 @@
                 <th>Bracket 1</th>
                 <th>Bracket 2</th>
                 <th>Bracket 3</th>
+                <th>Bracket 4</th>
                 <th>Total</th>
                 <th>Correct Picks</th>
               </tr>
@@ -181,6 +186,12 @@
           <p class="muted">Once Round 2 ends, unlock Bracket 3 so users can submit revised picks for the Conf Finals + NBA Finals at quarter points.</p>
           <button id="toggle-v3-btn" class="primary-btn">Unlock Bracket 3</button>
           <span id="v3-status" class="muted"></span>
+        </div>
+        <div class="admin-section-divider">
+          <h3>Bracket 4 (NBA Finals)</h3>
+          <p class="muted">Once the Conference Finals end, unlock Bracket 4 so users can submit picks for the NBA Finals only at quarter points.</p>
+          <button id="toggle-v4-btn" class="primary-btn">Unlock Bracket 4</button>
+          <span id="v4-status" class="muted"></span>
         </div>
         <div class="admin-section-divider">
           <h3>Random Bot</h3>
